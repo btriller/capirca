@@ -16,6 +16,7 @@
 
 import datetime
 import re
+import textwrap
 from absl.testing import absltest
 from unittest import mock
 
@@ -590,16 +591,27 @@ class JuniperMSMPCTest(parameterized.TestCase):
     self.naming.GetNetAddr.assert_called_once_with('SOME_HOST')
     self.naming.GetServiceByProto.assert_called_once_with('SMTP', 'tcp')
 
-  def testProtocolCase(self):
+  @parameterized.named_parameters(
+      dict(testcase_name='WithApplyGroups', apply_groups=True),
+      dict(testcase_name='WithoutApplyGroups', apply_groups=False),
+  )
+  def testProtocolCase(self, apply_groups):
+    header = GOOD_HEADER
+    if not apply_groups:
+        header = re.sub(r'(target:: msmpc .+)', r'\1 no-apply-groups', header)
     msmpc = junipermsmpc.JuniperMSMPC(
-        policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_5, self.naming), EXP_INFO)
+        policy.ParsePolicy(header + GOOD_TERM_5, self.naming), EXP_INFO)
     output = str(msmpc)
     expected_output = (
-        '            application test-filtergood-term-5-app1 {\n' +
-        '                protocol icmp;\n' + '            }\n' +
-        '            application test-filtergood-term-5-app2 {\n' +
-        '                protocol tcp;\n' +
-        '                destination-port 1-65535;\n' + '            }')
+        '    application test-filtergood-term-5-app1 {\n'
+        '        protocol icmp;\n'
+        '    }\n'
+        '    application test-filtergood-term-5-app2 {\n'
+        '        protocol tcp;\n'
+        '        destination-port 1-65535;\n'
+        '    }\n')
+    if apply_groups:
+        expected_output = textwrap.indent(expected_output, '        ')
 
     self.assertIn(expected_output, output, output)
 
@@ -915,10 +927,17 @@ class JuniperMSMPCTest(parameterized.TestCase):
     self.assertIn('destination-port 67;', str(msmpc))
     self.assertIn('destination-port 69;', str(msmpc))
 
-  def testApplicationSets(self):
+  @parameterized.named_parameters(
+      dict(testcase_name='WithApplyGroups', apply_groups=True),
+      dict(testcase_name='WithoutAapplyGroups', apply_groups=False),
+  )
+  def testApplicationSets(self, apply_groups):
+    header = GOOD_HEADER
+    if not apply_groups:
+        header = re.sub(r'(target:: msmpc .+)', r'\1 no-apply-groups', header)
     self.naming.GetServiceByProto.side_effect = [['67'], ['69']]
     msmpc = junipermsmpc.JuniperMSMPC(
-        policy.ParsePolicy(GOOD_HEADER + RANGE_PORTS_TERM, self.naming),
+        policy.ParsePolicy(header + RANGE_PORTS_TERM, self.naming),
         EXP_INFO)
     expected = ('        applications {\n'
                 '            application test-filterranged-ports-1-app1 {\n'
@@ -934,6 +953,8 @@ class JuniperMSMPCTest(parameterized.TestCase):
                 '                application test-filterranged-ports-1-app2;\n'
                 '            }\n'
                 '        }\n')
+    if not apply_groups:
+        expected = textwrap.dedent(expected)
     self.assertIn(expected, str(msmpc))
 
   def testGroup(self):
@@ -1525,14 +1546,20 @@ class JuniperMSMPCTest(parameterized.TestCase):
       self.assertNotIn(notexpect, output, output)
 
   @parameterized.named_parameters(
-      dict(testcase_name='true', option='true', want_logging=True),
-      dict(testcase_name='True', option='True', want_logging=True),
-      dict(testcase_name='syslog', option='syslog', want_logging=True),
-      dict(testcase_name='local', option='local', want_logging=True),
-      dict(testcase_name='disable', option='disable', want_logging=False),
-      dict(testcase_name='log-both', option='log-both', want_logging=True),
+      dict(testcase_name='true-apply-groups', option='true', want_logging=True, apply_groups=True),
+      dict(testcase_name='True-apply-groups', option='True', want_logging=True, apply_groups=True),
+      dict(testcase_name='syslog-apply-groups', option='syslog', want_logging=True, apply_groups=True),
+      dict(testcase_name='local-apply-groups', option='local', want_logging=True, apply_groups=True),
+      dict(testcase_name='disable-apply-groups', option='disable', want_logging=False, apply_groups=True),
+      dict(testcase_name='log-both-apply-groups', option='log-both', want_logging=True, apply_groups=True),
+      dict(testcase_name='true-no-apply-groups', option='true', want_logging=True, apply_groups=False),
+      dict(testcase_name='True-no-apply-groups', option='True', want_logging=True, apply_groups=False),
+      dict(testcase_name='syslog-no-apply-groups', option='syslog', want_logging=True, apply_groups=False),
+      dict(testcase_name='local-no-apply-groups', option='local', want_logging=True, apply_groups=False),
+      dict(testcase_name='disable-no-apply-groups', option='disable', want_logging=False, apply_groups=False),
+      dict(testcase_name='log-both-no-apply-groups', option='log-both', want_logging=True, apply_groups=False),
   )
-  def testLogging(self, option, want_logging):
+  def testLogging(self, option, want_logging, apply_groups):
     self.naming.GetNetAddr.return_value = [nacaddr.IPv4('192.168.0.0/24')]
     self.naming.GetServiceByProto.return_value = ['25']
     expected_output = (
@@ -1564,21 +1591,41 @@ class JuniperMSMPCTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='default', header=GOOD_HEADER,
+          testcase_name='default-apply-groups', header=GOOD_HEADER,
+          apply_groups=True,
           direction='input-output'),
       dict(
-          testcase_name='ingress',
+          testcase_name='ingress-apply-groups',
           header=GOOD_HEADER_INGRESS,
+          apply_groups=True,
           direction='input'),
       dict(
-          testcase_name='egress', header=GOOD_HEADER_EGRESS,
+          testcase_name='egress-apply-groups', header=GOOD_HEADER_EGRESS,
+          apply_groups=True,
+          direction='output'),
+      dict(
+          testcase_name='default-no-apply-groups', header=GOOD_HEADER,
+          apply_groups=False,
+          direction='input-output'),
+      dict(
+          testcase_name='ingress-no-apply-groups',
+          header=GOOD_HEADER_INGRESS,
+          apply_groups=False,
+          direction='input'),
+      dict(
+          testcase_name='egress-no-apply-groups', header=GOOD_HEADER_EGRESS,
+          apply_groups=False,
           direction='output'))
-  def testDirection(self, header, direction):
+  def testDirection(self, header, apply_groups, direction):
+    if not apply_groups:
+        header = re.sub(r'(target:: msmpc .+)', r'\1 no-apply-groups', header)
     msmpc = junipermsmpc.JuniperMSMPC(
         policy.ParsePolicy(header + GOOD_TERM_3, self.naming), EXP_INFO)
     output = str(msmpc)
-    expected_output = ('                rule test-filter {\n' +
-                       '                    match-direction %s;')
+    expected_output = ('        rule test-filter {\n'
+                       '            match-direction %s;')
+    if apply_groups:
+        expected_output = textwrap.indent(expected_output, '        ')
     self.assertIn(expected_output % direction, output, output)
 
   def testBadDirectionCombo(self):
@@ -1651,19 +1698,28 @@ class JuniperMSMPCTest(parameterized.TestCase):
     self.assertIn(expectedv6, output, output)
 
   @parameterized.named_parameters(
-      dict(testcase_name='tcp', protoname='tcp', protonum='tcp'),
-      dict(testcase_name='hopopt', protoname='hopopt', protonum='0'),
-      dict(testcase_name='vrrp', protoname='vrrp', protonum='112'),
+      dict(testcase_name='tcp-apply-groups', protoname='tcp', protonum='tcp', apply_groups=True),
+      dict(testcase_name='hopopt-apply-groups', protoname='hopopt', protonum='0', apply_groups=True),
+      dict(testcase_name='vrrp-apply-groups', protoname='vrrp', protonum='112', apply_groups=True),
+      dict(testcase_name='tcp-no-apply-groups', protoname='tcp', protonum='tcp', apply_groups=False),
+      dict(testcase_name='hopopt-no-apply-groups', protoname='hopopt', protonum='0', apply_groups=False),
+      dict(testcase_name='vrrp-no-apply-groups', protoname='vrrp', protonum='112', apply_groups=False),
   )
-  def testProtocolAsNumber(self, protoname, protonum):
-    expected = ('            application test-filtergood-term-numeric-app1 {\n'
-                + '                protocol %s;') % protonum
+  def testProtocolAsNumber(self, protoname, protonum, apply_groups):
+    expected = ('    application test-filtergood-term-numeric-app1 {\n'
+                '        protocol %s;') % protonum
 
+    header = GOOD_HEADER_MIXED
+    if not apply_groups:
+        header = re.sub(r'(target:: msmpc .+)', r'\1 no-apply-groups', header)
     msmpc = junipermsmpc.JuniperMSMPC(
         policy.ParsePolicy(
-            GOOD_HEADER_MIXED + GOOD_TERM_NUMERIC_PROTOCOL % protoname,
+            header + GOOD_TERM_NUMERIC_PROTOCOL % protoname,
             self.naming), EXP_INFO)
     output = str(msmpc)
+    if apply_groups:
+        expected = textwrap.indent(expected, '        ')
+
     self.assertIn(expected, output, output)
 
   def testSupportedNamedProtocols(self):

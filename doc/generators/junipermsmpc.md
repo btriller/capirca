@@ -10,6 +10,7 @@ mixed: specifies the output be for IPv4 and IPv6 filters. This is the default fo
 noverbose: omit additional term and address comments.
 ingress: filter will be applied in the input direction.
 egress: filter will be appliced in the output direction.
+no-apply-groups: generate configuration without apply-groups
 ```
 
 When inet4 or inet6 is specified, naming tokens with both IPv4 and IPv6 filters will be rendered using only the specified addresses.
